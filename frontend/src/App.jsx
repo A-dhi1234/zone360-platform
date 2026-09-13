@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import Orders from "./pages/Orders";
 
 import {
   Routes,
@@ -1330,42 +1331,91 @@ function Zone360AppPage() {
 // =====================================================
 
 function LoginPage() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const [message, setMessage] =
-    useState("");
+  const API_URL =
+    import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
-
-  const handleLogin = (event) => {
-
+  const handleLogin = async (event) => {
     event.preventDefault();
 
-    setMessage(
-      "Login UI is ready. Backend authentication can be connected later."
-    );
+    setMessage("");
+    setLoading(true);
 
+    try {
+      const formData = new URLSearchParams();
+
+      formData.append("username", email);
+      formData.append("password", password);
+
+      const response = await fetch(
+        `${API_URL}/auth/login`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/x-www-form-urlencoded",
+          },
+          body: formData,
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail || "Login failed"
+        );
+      }
+
+      // Save JWT token
+      localStorage.setItem(
+        "token",
+        data.access_token
+      );
+
+      // Also save user information
+      localStorage.setItem(
+        "user",
+        JSON.stringify({
+          user_id: data.user_id,
+          name: data.name,
+          email: data.email,
+        })
+      );
+
+      setMessage("Login successful!");
+
+      // Return to cart
+      window.location.href = "/cart";
+    } catch (error) {
+      console.error("Login error:", error);
+
+      setMessage(
+        error.message ||
+          "Unable to login. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
-
   return (
-
     <section className="auth-page">
-
       <div className="auth-card">
 
         {/* LOGO */}
-
         <div className="auth-logo">
-
           <img
-            src="/src/assets/logo.png"
+            src="/assets/logo.png"
             alt="Zone360 Logo"
           />
-
         </div>
 
-
         {/* HEADING */}
-
         <h1>
           Welcome Back
         </h1>
@@ -1374,46 +1424,39 @@ function LoginPage() {
           Login to your Zone360 account.
         </p>
 
-
         {/* MESSAGE */}
-
         {message && (
-
           <div className="info-message">
             {message}
           </div>
-
         )}
 
-
         {/* LOGIN FORM */}
-
         <form onSubmit={handleLogin}>
 
           {/* EMAIL */}
-
           <div className="form-group">
-
-            <label>
+            <label htmlFor="login-email">
               Email Address
             </label>
 
             <input
+              id="login-email"
               type="email"
               placeholder="Enter your email"
+              value={email}
+              onChange={(event) =>
+                setEmail(event.target.value)
+              }
               required
             />
-
           </div>
 
-
           {/* PASSWORD */}
-
           <div className="form-group">
 
             <div className="password-label-row">
-
-              <label>
+              <label htmlFor="login-password">
                 Password
               </label>
 
@@ -1428,23 +1471,22 @@ function LoginPage() {
               >
                 Forgot Password?
               </button>
-
             </div>
 
-
             <input
+              id="login-password"
               type="password"
               placeholder="Enter your password"
+              value={password}
+              onChange={(event) =>
+                setPassword(event.target.value)
+              }
               required
             />
-
           </div>
 
-
           {/* REMEMBER ME */}
-
           <label className="remember-me">
-
             <input
               type="checkbox"
             />
@@ -1452,26 +1494,23 @@ function LoginPage() {
             <span>
               Remember me
             </span>
-
           </label>
 
-
           {/* LOGIN BUTTON */}
-
           <button
             type="submit"
             className="primary-button full-width"
+            disabled={loading}
           >
-            Login
+            {loading
+              ? "Logging in..."
+              : "Login"}
           </button>
 
         </form>
 
-
         {/* REGISTER LINK */}
-
         <div className="auth-switch">
-
           <span>
             Don't have an account?
           </span>
@@ -1479,15 +1518,11 @@ function LoginPage() {
           <Link to="/register">
             Create an account
           </Link>
-
         </div>
 
       </div>
-
     </section>
-
   );
-
 }
 
 
@@ -1551,7 +1586,7 @@ function RegisterPage() {
         <div className="auth-logo">
 
           <img
-            src="/src/assets/logo.png"
+            src="/assets/logo.png"
             alt="Zone360 Logo"
           />
 

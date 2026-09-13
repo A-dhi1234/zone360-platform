@@ -1,10 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
-import {
-  products,
-  formatPrice,
-} from "../app/products";
+import { formatPrice } from "../app/products";
+import { getProducts } from "../api";
 
 
 function Products({
@@ -12,52 +10,110 @@ function Products({
   isInWishlist,
 }) {
 
+  const [products, setProducts] =
+    useState([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
+
+
   const [searchParams, setSearchParams] =
     useSearchParams();
 
 
-  // =====================================================
-  // SEARCH
-  // =====================================================
-
   const urlSearch =
     searchParams.get("search") || "";
+
 
   const [search, setSearch] =
     useState(urlSearch);
 
 
-  // =====================================================
-  // CATEGORY
-  // =====================================================
-
   const [category, setCategory] =
     useState("All");
 
-
-  // =====================================================
-  // PRICE FILTER
-  // =====================================================
 
   const [maxPrice, setMaxPrice] =
     useState(5000);
 
 
-  // =====================================================
-  // SORT
-  // =====================================================
-
   const [sortBy, setSortBy] =
     useState("recommended");
 
 
-  // =====================================================
-  // FILTER PANEL
-  // =====================================================
-
   const [filtersOpen, setFiltersOpen] =
     useState(false);
 
+
+  // ===================================================
+  // LOAD PRODUCTS FROM BACKEND
+  // ===================================================
+
+  useEffect(() => {
+
+    const loadProducts = async () => {
+
+      try {
+
+        setLoading(true);
+        setError("");
+
+        const data =
+          await getProducts();
+
+        const formattedProducts =
+          data.map((product) => {
+
+            return {
+              ...product,
+
+              // Backend uses snake_case
+              // Frontend uses camelCase
+              shortName:
+                product.short_name,
+
+              // Keep the real database ID
+              id: product.id,
+            };
+
+          });
+
+
+        setProducts(
+          formattedProducts
+        );
+
+      } catch (err) {
+
+        console.error(
+          "Product API error:",
+          err
+        );
+
+        setError(
+          "Unable to load products."
+        );
+
+      } finally {
+
+        setLoading(false);
+
+      }
+
+    };
+
+
+    loadProducts();
+
+  }, []);
+
+
+  // ===================================================
+  // CATEGORIES
+  // ===================================================
 
   const categories = [
     "All",
@@ -68,16 +124,19 @@ function Products({
   ];
 
 
-  // =====================================================
-  // SEARCH CHANGE
-  // =====================================================
+  // ===================================================
+  // SEARCH
+  // ===================================================
 
-  const handleSearchChange = (event) => {
+  const handleSearchChange = (
+    event
+  ) => {
 
     const value =
       event.target.value;
 
     setSearch(value);
+
 
     if (value.trim()) {
 
@@ -94,10 +153,6 @@ function Products({
   };
 
 
-  // =====================================================
-  // CLEAR SEARCH
-  // =====================================================
-
   const clearSearch = () => {
 
     setSearch("");
@@ -107,9 +162,9 @@ function Products({
   };
 
 
-  // =====================================================
-  // CLEAR ALL FILTERS
-  // =====================================================
+  // ===================================================
+  // CLEAR FILTERS
+  // ===================================================
 
   const clearFilters = () => {
 
@@ -126,84 +181,78 @@ function Products({
   };
 
 
-  // =====================================================
-  // FILTER + SORT
-  // =====================================================
+  // ===================================================
+  // FILTER PRODUCTS
+  // ===================================================
 
   const filteredProducts =
     useMemo(() => {
 
       let result =
-        products.filter((product) => {
+        products.filter(
+          (product) => {
 
-          const searchText =
-            search
-              .trim()
-              .toLowerCase();
-
-
-          const productName =
-            product.name
-              ?.toLowerCase() || "";
+            const searchText =
+              search
+                .trim()
+                .toLowerCase();
 
 
-          const productShortName =
-            product.shortName
-              ?.toLowerCase() || "";
+            const productName =
+              product.name
+                ?.toLowerCase() || "";
 
 
-          const productCategory =
-            product.category
-              ?.toLowerCase() || "";
+            const productShortName =
+              product.shortName
+                ?.toLowerCase() || "";
 
 
-          const productDescription =
-            product.description
-              ?.toLowerCase() || "";
+            const productCategory =
+              product.category
+                ?.toLowerCase() || "";
 
 
-          // SEARCH
+            const productDescription =
+              product.description
+                ?.toLowerCase() || "";
 
-          const matchesSearch =
-            !searchText ||
 
-            productName.includes(
-              searchText
-            ) ||
+            const matchesSearch =
+              !searchText ||
+              productName.includes(
+                searchText
+              ) ||
+              productShortName.includes(
+                searchText
+              ) ||
+              productCategory.includes(
+                searchText
+              ) ||
+              productDescription.includes(
+                searchText
+              );
 
-            productShortName.includes(
-              searchText
-            ) ||
 
-            productCategory.includes(
-              searchText
-            ) ||
+            const matchesCategory =
+              category === "All" ||
+              product.category ===
+                category;
 
-            productDescription.includes(
-              searchText
+
+            const matchesPrice =
+              product.price <=
+              maxPrice;
+
+
+            return (
+              matchesSearch &&
+              matchesCategory &&
+              matchesPrice
             );
 
-
-          // CATEGORY
-
-          const matchesCategory =
-            category === "All" ||
-            product.category === category;
-
-
-          // PRICE
-
-          const matchesPrice =
-            product.price <= maxPrice;
-
-
-          return (
-            matchesSearch &&
-            matchesCategory &&
-            matchesPrice
-          );
-
-        });
+          }
+        );
 
 
       // =================================================
@@ -245,11 +294,97 @@ function Products({
       return result;
 
     }, [
+      products,
       search,
       category,
       maxPrice,
       sortBy,
     ]);
+
+
+  // ===================================================
+  // LOADING
+  // ===================================================
+
+  if (loading) {
+
+    return (
+
+      <section className="inner-page">
+
+        <div className="container">
+
+          <div className="page-heading">
+
+            <span>
+              OUR PRODUCTS
+            </span>
+
+            <h1>
+              Smart Technology Solutions
+            </h1>
+
+            <p>
+              Loading products...
+            </p>
+
+          </div>
+
+        </div>
+
+      </section>
+
+    );
+
+  }
+
+
+  // ===================================================
+  // ERROR
+  // ===================================================
+
+  if (error) {
+
+    return (
+
+      <section className="inner-page">
+
+        <div className="container">
+
+          <div className="page-heading">
+
+            <span>
+              OUR PRODUCTS
+            </span>
+
+            <h1>
+              Unable to Load Products
+            </h1>
+
+            <p>
+              {error}
+            </p>
+
+
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() =>
+                window.location.reload()
+              }
+            >
+              Try Again
+            </button>
+
+          </div>
+
+        </div>
+
+      </section>
+
+    );
+
+  }
 
 
   return (
@@ -259,7 +394,7 @@ function Products({
       <div className="container">
 
         {/* =================================================
-            PAGE HEADER
+            PAGE HEADING
         ================================================= */}
 
         <div className="page-heading">
@@ -281,7 +416,7 @@ function Products({
 
 
         {/* =================================================
-            SEARCH + SORT
+            TOOLBAR
         ================================================= */}
 
         <div className="products-main-toolbar">
@@ -292,11 +427,14 @@ function Products({
               🔍
             </span>
 
+
             <input
               type="text"
               placeholder="Search products..."
               value={search}
-              onChange={handleSearchChange}
+              onChange={
+                handleSearchChange
+              }
             />
 
 
@@ -305,7 +443,9 @@ function Products({
               <button
                 type="button"
                 className="product-search-clear"
-                onClick={clearSearch}
+                onClick={
+                  clearSearch
+                }
               >
                 ✕
               </button>
@@ -315,13 +455,12 @@ function Products({
           </div>
 
 
-          {/* SORT */}
-
           <div className="sort-control">
 
             <label>
               Sort by
             </label>
+
 
             <select
               value={sortBy}
@@ -353,14 +492,13 @@ function Products({
           </div>
 
 
-          {/* MOBILE FILTER */}
-
           <button
             type="button"
             className="mobile-filter-button"
             onClick={() =>
               setFiltersOpen(
-                (current) => !current
+                (current) =>
+                  !current
               )
             }
           >
@@ -376,8 +514,9 @@ function Products({
 
         <div className="products-layout">
 
+
           {/* =================================================
-              FILTER SIDEBAR
+              FILTERS
           ================================================= */}
 
           <aside
@@ -394,9 +533,12 @@ function Products({
                 Filters
               </h3>
 
+
               <button
                 type="button"
-                onClick={clearFilters}
+                onClick={
+                  clearFilters
+                }
               >
                 Clear All
               </button>
@@ -425,10 +567,13 @@ function Products({
                       type="radio"
                       name="category"
                       checked={
-                        category === item
+                        category ===
+                        item
                       }
                       onChange={() =>
-                        setCategory(item)
+                        setCategory(
+                          item
+                        )
                       }
                     />
 
@@ -456,7 +601,9 @@ function Products({
               <div className="price-filter-value">
 
                 <strong>
-                  {formatPrice(maxPrice)}
+                  {formatPrice(
+                    maxPrice
+                  )}
                 </strong>
 
               </div>
@@ -470,7 +617,9 @@ function Products({
                 value={maxPrice}
                 onChange={(event) =>
                   setMaxPrice(
-                    Number(event.target.value)
+                    Number(
+                      event.target.value
+                    )
                   )
                 }
                 className="price-range"
@@ -516,8 +665,10 @@ function Products({
 
 
               <small className="filter-note">
+
                 Rating data will be connected
                 when product reviews are added.
+
               </small>
 
             </div>
@@ -547,8 +698,10 @@ function Products({
 
 
               <small className="filter-note">
+
                 Stock information will be
                 connected later.
+
               </small>
 
             </div>
@@ -557,7 +710,7 @@ function Products({
 
 
           {/* =================================================
-              PRODUCTS
+              RESULTS
           ================================================= */}
 
           <div className="products-results">
@@ -567,15 +720,18 @@ function Products({
               <div>
 
                 <strong>
-                  {filteredProducts.length}
-                </strong>
-
-                {" "}
+                  {
+                    filteredProducts.length
+                  }
+                </strong>{" "}
 
                 product
-                {filteredProducts.length !== 1
-                  ? "s"
-                  : ""}
+                {
+                  filteredProducts.length !==
+                  1
+                    ? "s"
+                    : ""
+                }
 
 
                 {search.trim() && (
@@ -595,7 +751,9 @@ function Products({
 
                 <button
                   type="button"
-                  onClick={clearFilters}
+                  onClick={
+                    clearFilters
+                  }
                   className="clear-results-button"
                 >
                   Clear Filters
@@ -606,9 +764,8 @@ function Products({
             </div>
 
 
-            {/* PRODUCT GRID */}
-
-            {filteredProducts.length > 0 ? (
+            {filteredProducts.length >
+            0 ? (
 
               <div className="product-grid product-page-grid">
 
@@ -648,10 +805,13 @@ function Products({
                   or filters.
                 </p>
 
+
                 <button
                   type="button"
                   className="primary-button"
-                  onClick={clearFilters}
+                  onClick={
+                    clearFilters
+                  }
                 >
                   Clear Filters
                 </button>
@@ -689,30 +849,28 @@ function ProductItem({
       : false;
 
 
-  const handleWishlistClick = (
-    event
-  ) => {
+  const handleWishlistClick =
+    (event) => {
 
-    event.preventDefault();
+      event.preventDefault();
 
-    event.stopPropagation();
+      event.stopPropagation();
 
-    if (toggleWishlist) {
 
-      toggleWishlist(product);
+      if (toggleWishlist) {
 
-    }
+        toggleWishlist(
+          product
+        );
 
-  };
+      }
+
+    };
 
 
   return (
 
     <div className="product-card-wrapper">
-
-      {/* =================================================
-          WISHLIST BUTTON
-      ================================================= */}
 
       <button
         type="button"
@@ -721,7 +879,9 @@ function ProductItem({
             ? "product-wishlist-button active"
             : "product-wishlist-button"
         }
-        onClick={handleWishlistClick}
+        onClick={
+          handleWishlistClick
+        }
         aria-label={
           wishlistActive
             ? "Remove from wishlist"
@@ -735,10 +895,6 @@ function ProductItem({
 
       </button>
 
-
-      {/* =================================================
-          PRODUCT CARD
-      ================================================= */}
 
       <Link
         to={`/products/${product.id}`}
@@ -793,7 +949,11 @@ function ProductItem({
           <div className="product-card-bottom">
 
             <span className="product-price">
-              {formatPrice(product.price)}
+
+              {formatPrice(
+                product.price
+              )}
+
             </span>
 
 

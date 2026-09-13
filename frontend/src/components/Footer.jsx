@@ -64,7 +64,7 @@ function Footer() {
             >
 
               <img
-                src="/src/assets/logo.png"
+                src="/assets/logo.png"
                 alt="Zone360"
                 className="footer-logo"
               />

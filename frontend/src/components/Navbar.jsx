@@ -403,7 +403,7 @@ function Navbar({
           >
 
             <img
-              src="/src/assets/logo.png"
+              src="/assets/logo.png"
               alt="Zone360 Logo"
             />
 

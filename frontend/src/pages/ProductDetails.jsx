@@ -1,47 +1,122 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Link,
   useNavigate,
   useParams,
 } from "react-router-dom";
 
-import {
-  products,
-  formatPrice,
-} from "../app/products";
+import { formatPrice } from "../app/products";
+import { getProduct } from "../api";
 
 
 function ProductDetails({
   addToCart,
 }) {
 
-  const { productId } =
-    useParams();
+  const { productId } = useParams();
 
-  const navigate =
-    useNavigate();
+  const navigate = useNavigate();
+
+
+  const [product, setProduct] =
+    useState(null);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
 
 
   const [quantity, setQuantity] =
     useState(1);
 
-
   const [addedMessage, setAddedMessage] =
     useState("");
 
 
-  const product =
-    products.find(
-      (item) =>
-        item.id === productId
+  // ===================================================
+  // LOAD PRODUCT FROM BACKEND
+  // ===================================================
+
+  useEffect(() => {
+
+    const loadProduct = async () => {
+
+      try {
+
+        setLoading(true);
+        setError("");
+
+        const data =
+          await getProduct(productId);
+
+        setProduct(data);
+
+      } catch (err) {
+
+        console.error(
+          "Product Details API error:",
+          err
+        );
+
+        setError(
+          "Unable to load product."
+        );
+
+      } finally {
+
+        setLoading(false);
+
+      }
+
+    };
+
+
+    loadProduct();
+
+  }, [productId]);
+
+
+  // ===================================================
+  // LOADING
+  // ===================================================
+
+  if (loading) {
+
+    return (
+
+      <section className="inner-page">
+
+        <div className="container">
+
+          <div className="not-found-small">
+
+            <h1>
+              Loading Product...
+            </h1>
+
+            <p>
+              Please wait while we load
+              the product details.
+            </p>
+
+          </div>
+
+        </div>
+
+      </section>
+
     );
 
+  }
+
 
   // ===================================================
-  // PRODUCT NOT FOUND
+  // ERROR / PRODUCT NOT FOUND
   // ===================================================
 
-  if (!product) {
+  if (error || !product) {
 
     return (
 
@@ -54,6 +129,11 @@ function ProductDetails({
             <h1>
               Product Not Found
             </h1>
+
+            <p>
+              {error ||
+                "The requested product could not be found."}
+            </p>
 
             <Link
               to="/products"
@@ -110,7 +190,10 @@ function ProductDetails({
   const handleAddToCart = () => {
 
     addToCart(
-      product,
+      {
+        ...product,
+        shortName: product.short_name,
+      },
       quantity
     );
 
@@ -136,7 +219,10 @@ function ProductDetails({
   const handleBuyNow = () => {
 
     addToCart(
-      product,
+      {
+        ...product,
+        shortName: product.short_name,
+      },
       quantity
     );
 
@@ -270,27 +356,42 @@ function ProductDetails({
                 Key Features
               </h3>
 
+              <div className="feature-item">
 
-              {product.features.map(
-                (feature, index) => (
+                <span>
+                  ✓
+                </span>
 
-                  <div
-                    className="feature-item"
-                    key={index}
-                  >
+                <p>
+                  Professional Zone360 solution
+                </p>
 
-                    <span>
-                      ✓
-                    </span>
+              </div>
 
-                    <p>
-                      {feature}
-                    </p>
+              <div className="feature-item">
 
-                  </div>
+                <span>
+                  ✓
+                </span>
 
-                )
-              )}
+                <p>
+                  Designed for reliable
+                  monitoring and automation
+                </p>
+
+              </div>
+
+              <div className="feature-item">
+
+                <span>
+                  ✓
+                </span>
+
+                <p>
+                  Easy-to-use solution
+                </p>
+
+              </div>
 
             </div>
 

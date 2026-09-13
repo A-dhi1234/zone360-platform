@@ -63,7 +63,7 @@ function Home() {
           <div className="hero-image">
 
             <img
-              src="/src/assets/hero-products.png"
+              src="/assets/hero-products.png"
               alt="Zone360 Smart Technology"
             />
 

@@ -34,7 +34,7 @@ export const products = [
 
     category: "Vehicle Tracking",
 
-    image: "/src/assets/gps-tracker.png",
+    image: "/assets/gps-tracker.png",
 
     // ================================
     // EDIT PRICE HERE
@@ -68,7 +68,7 @@ export const products = [
 
     category: "Employee Management",
 
-    image: "/src/assets/employee-tracking.png",
+    image: "/assets/employee-tracking.png",
 
     // ================================
     // EDIT PRICE HERE
@@ -102,7 +102,7 @@ export const products = [
 
     category: "Security",
 
-    image: "/src/assets/cctv.png",
+    image: "/assets/cctv.png",
 
     // ================================
     // EDIT PRICE HERE
