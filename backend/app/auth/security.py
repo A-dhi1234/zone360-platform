@@ -102,6 +102,7 @@ def get_current_user(
         )
 
     return user
+
 def get_current_admin(
     current_user: User = Depends(get_current_user)
 ):
@@ -112,3 +113,4 @@ def get_current_admin(
         )
 
     return current_user
+

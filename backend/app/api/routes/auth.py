@@ -6,9 +6,10 @@ from app.db.database import get_db
 from app.models.user import User
 from app.auth.security import (
     verify_password,
-    create_access_token
+    create_access_token,
+    get_password_hash,
+    get_current_user
 )
-
 
 router = APIRouter(
     prefix="/auth",
@@ -16,36 +17,37 @@ router = APIRouter(
 )
 
 
+# =====================================================
+# LOGIN
+# =====================================================
+
 @router.post("/login")
 def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
 
-    # OAuth2 sends the email in the username field
     email = form_data.username
     password = form_data.password
 
-    # Find user
-    user = db.query(User).filter(
-        User.email == email
-    ).first()
+    user = (
+        db.query(User)
+        .filter(User.email == email)
+        .first()
+    )
 
-    # User doesn't exist
     if user is None:
         raise HTTPException(
             status_code=401,
             detail="Invalid email or password"
         )
 
-    # User inactive
     if not user.is_active:
         raise HTTPException(
             status_code=403,
             detail="User account is inactive"
         )
 
-    # Check password
     if not verify_password(
         password,
         user.password_hash
@@ -55,7 +57,6 @@ def login(
             detail="Invalid email or password"
         )
 
-    # Create JWT
     token = create_access_token({
         "sub": str(user.id),
         "email": user.email,
@@ -69,4 +70,76 @@ def login(
         "user_id": user.id,
         "name": user.name,
         "email": user.email
+    }
+
+
+# =====================================================
+# REGISTER
+# =====================================================
+
+@router.post("/register")
+def register(
+    name: str,
+    email: str,
+    password: str,
+    phone: str | None = None,
+    db: Session = Depends(get_db)
+):
+
+    # Check if email already exists
+    existing_user = (
+        db.query(User)
+        .filter(User.email == email)
+        .first()
+    )
+
+    if existing_user:
+        raise HTTPException(
+            status_code=400,
+            detail="Email already registered"
+        )
+
+    # Hash password
+    hashed_password = get_password_hash(
+    password
+)
+
+    # Create customer account
+    new_user = User(
+        name=name,
+        email=email,
+        phone=phone,
+        password_hash=hashed_password,
+
+        # 2 = Customer
+        role_id=2,
+
+        is_active=True
+    )
+
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    return {
+        "message": "User registered successfully",
+        "user_id": new_user.id,
+        "name": new_user.name,
+        "email": new_user.email
+    }
+# =====================================================
+# CURRENT USER
+# =====================================================
+
+@router.get("/me")
+def get_me(
+    current_user: User = Depends(get_current_user)
+):
+    return {
+        "user_id": current_user.id,
+        "name": current_user.name,
+        "email": current_user.email,
+        "phone": current_user.phone,
+        "role_id": current_user.role_id,
+        "is_active": current_user.is_active
     }

@@ -1,5 +1,5 @@
-from sqlalchemy import Column, Integer, String, DateTime
-from sqlalchemy.sql import func
+from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy.orm import relationship
 
 from app.db.database import Base
 
@@ -7,15 +7,40 @@ from app.db.database import Base
 class Customer(Base):
     __tablename__ = "customers"
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), nullable=False)
-    phone = Column(String(20), nullable=False, unique=True)
-    email = Column(String(150), nullable=True)
-    company_name = Column(String(150), nullable=True)
-    address = Column(String(300), nullable=True)
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True
+    )
 
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False,
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        unique=True,
+        nullable=False
+    )
+
+    address = Column(
+        String(255),
+        nullable=True
+    )
+
+    city = Column(
+        String(100),
+        nullable=True
+    )
+
+    state = Column(
+        String(100),
+        nullable=True
+    )
+
+    pincode = Column(
+        String(10),
+        nullable=True
+    )
+
+    user = relationship(
+        "User",
+        backref="customer"
     )
