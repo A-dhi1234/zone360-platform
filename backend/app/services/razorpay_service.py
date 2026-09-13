@@ -14,11 +14,6 @@ if not RAZORPAY_KEY_ID or not RAZORPAY_KEY_SECRET:
         "Razorpay credentials are missing from .env"
     )
 
-if not RAZORPAY_WEBHOOK_SECRET:
-    raise RuntimeError(
-        "Razorpay webhook secret is missing from .env"
-    )
-
 client = razorpay.Client(
     auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
 )
@@ -61,6 +56,11 @@ def verify_razorpay_webhook(
     webhook_body: str,
     webhook_signature: str
 ):
+    if not RAZORPAY_WEBHOOK_SECRET:
+        raise RuntimeError(
+            "Razorpay webhook secret is not configured"
+        )
+
     return client.utility.verify_webhook_signature(
         webhook_body,
         webhook_signature,
