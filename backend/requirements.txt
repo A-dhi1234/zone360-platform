@@ -8,3 +8,4 @@ bcrypt
 python-multipart
 razorpay
 pydantic
+email-validator
