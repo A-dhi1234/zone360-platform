@@ -1,43 +1,55 @@
 const API_URL =
-  import.meta.env.VITE_API_URL ||
-  "http://127.0.0.1:8000";
+  import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
-export async function createPayment(
+
+export const createPayment = async (
   orderId,
   paymentMethod = "razorpay"
-) {
+) => {
+
   const token =
-    localStorage.getItem("token") ||
-    localStorage.getItem("access_token");
+    localStorage.getItem("token");
 
-  if (!token) {
-    throw new Error("Please login first.");
-  }
+  const response =
+    await fetch(
+      `${API_URL}/payments/`,
+      {
+        method: "POST",
 
-  const response = await fetch(
-    `${API_URL}/payments/`,
-    {
-      method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json",
 
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+          ...(token
+            ? {
+                Authorization:
+                  `Bearer ${token}`,
+              }
+            : {}),
+        },
 
-      body: JSON.stringify({
-        order_id: orderId,
-        payment_method: paymentMethod,
-      }),
-    }
-  );
+        body: JSON.stringify({
+          order_id: orderId,
+          payment_method:
+            paymentMethod,
+        }),
+      }
+    );
 
-  const data = await response.json();
 
   if (!response.ok) {
+
+    const errorText =
+      await response.text();
+
     throw new Error(
-      data.detail || "Payment creation failed"
+      errorText ||
+      "Failed to create payment"
     );
+
   }
 
-  return data;
-}
+
+  return response.json();
+
+};
