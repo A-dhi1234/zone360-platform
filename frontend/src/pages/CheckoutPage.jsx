@@ -1,22 +1,88 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { getProduct } from "../api";
 import { createPayment } from "../api/paymentApi";
 
 const API_URL =
-  import.meta.env.VITE_API_URL ||
-  "http://127.0.0.1:8000";
+  import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
-function CheckoutPage() {
+const RAZORPAY_KEY_ID =
+  import.meta.env.VITE_RAZORPAY_KEY_ID;
+
+
+/* =========================================================
+   LOAD RAZORPAY SCRIPT
+========================================================= */
+
+const loadRazorpayScript = () => {
+  return new Promise((resolve) => {
+    if (window.Razorpay) {
+      resolve(true);
+      return;
+    }
+
+    const existingScript = document.querySelector(
+      'script[src="https://checkout.razorpay.com/v1/checkout.js"]'
+    );
+
+    if (existingScript) {
+      existingScript.addEventListener("load", () => resolve(true));
+      existingScript.addEventListener("error", () => resolve(false));
+      return;
+    }
+
+    const script = document.createElement("script");
+
+    script.src =
+      "https://checkout.razorpay.com/v1/checkout.js";
+
+    script.async = true;
+
+    script.onload = () => resolve(true);
+
+    script.onerror = () => resolve(false);
+
+    document.body.appendChild(script);
+  });
+};
+
+
+/* =========================================================
+   TOKEN
+========================================================= */
+
+const getToken = () => {
+  return (
+    localStorage.getItem("token") ||
+    localStorage.getItem("access_token")
+  );
+};
+
+
+/* =========================================================
+   PRICE FORMAT
+========================================================= */
+
+const formatPrice = (amount) => {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(Number(amount || 0));
+};
+
+
+/* =========================================================
+   CHECKOUT PAGE
+========================================================= */
+
+const CheckoutPage = () => {
   const navigate = useNavigate();
-
-  // =====================================================
-  // STATE
-  // =====================================================
 
   const [cart, setCart] = useState(null);
 
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState({});
 
   const [loading, setLoading] = useState(true);
 
@@ -25,9 +91,6 @@ function CheckoutPage() {
 
   const [error, setError] = useState("");
 
-  // =====================================================
-  // CUSTOMER DETAILS
-  // =====================================================
 
   const [customerDetails, setCustomerDetails] =
     useState({
@@ -39,26 +102,15 @@ function CheckoutPage() {
       pincode: "",
     });
 
-  // =====================================================
-  // GET TOKEN
-  // =====================================================
 
-  const getToken = () => {
-    return (
-      localStorage.getItem("token") ||
-      localStorage.getItem("access_token")
-    );
-  };
-
-  // =====================================================
-  // LOAD CART + PRODUCTS
-  // =====================================================
+  /* =======================================================
+     LOAD CART
+  ======================================================= */
 
   useEffect(() => {
-    const loadCheckoutData = async () => {
+    const loadCart = async () => {
       try {
         setLoading(true);
-        setError("");
 
         const token = getToken();
 
@@ -67,21 +119,25 @@ function CheckoutPage() {
           return;
         }
 
-        // -----------------------------------------------
-        // GET CART
-        // -----------------------------------------------
-
-        const cartResponse = await fetch(
+        const response = await fetch(
           `${API_URL}/cart/`,
           {
             method: "GET",
             headers: {
               Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
             },
           }
         );
 
-        if (cartResponse.status === 401) {
+        const data = await response.json();
+
+        console.log(
+          "Checkout cart response:",
+          data
+        );
+
+        if (response.status === 401) {
           localStorage.removeItem("token");
           localStorage.removeItem("access_token");
 
@@ -89,61 +145,53 @@ function CheckoutPage() {
           return;
         }
 
-        const cartData =
-          await cartResponse.json();
-
-        console.log(
-          "Checkout cart response:",
-          cartData
-        );
-
-        if (!cartResponse.ok) {
+        if (!response.ok) {
           throw new Error(
-            cartData.detail ||
+            data?.detail ||
               "Unable to load cart."
           );
         }
 
-        setCart(cartData);
+        setCart(data);
 
-        // -----------------------------------------------
-        // CHECK EMPTY CART
-        // -----------------------------------------------
+        /* ---------------------------------------------
+           LOAD PRODUCT DETAILS
+        --------------------------------------------- */
 
         if (
-          !cartData.items ||
-          cartData.items.length === 0
+          data?.items &&
+          data.items.length > 0
         ) {
-          setError(
-            "Your cart is empty."
+          const productMap = {};
+
+          await Promise.all(
+            data.items.map(async (item) => {
+              try {
+                const product =
+                  await getProduct(
+                    item.product_id
+                  );
+
+                if (product) {
+                  productMap[
+                    item.product_id
+                  ] = product;
+                }
+              } catch (productError) {
+                console.error(
+                  "Unable to load product:",
+                  item.product_id,
+                  productError
+                );
+              }
+            })
           );
 
-          return;
+          setProducts(productMap);
         }
-
-        // -----------------------------------------------
-        // GET PRODUCTS
-        // -----------------------------------------------
-
-        const productsResponse =
-          await fetch(
-            `${API_URL}/products/`
-          );
-
-        const productsData =
-          await productsResponse.json();
-
-        if (!productsResponse.ok) {
-          throw new Error(
-            "Unable to load products."
-          );
-        }
-
-        setProducts(productsData);
-
       } catch (err) {
         console.error(
-          "Checkout loading error:",
+          "Checkout load error:",
           err
         );
 
@@ -151,410 +199,200 @@ function CheckoutPage() {
           err.message ||
             "Unable to load checkout."
         );
-
       } finally {
         setLoading(false);
       }
     };
 
-    loadCheckoutData();
-
+    loadCart();
   }, [navigate]);
 
-  // =====================================================
-  // CUSTOMER INPUT CHANGE
-  // =====================================================
 
-  const handleCustomerChange = (
-    event
-  ) => {
+  /* =======================================================
+     CUSTOMER DETAILS
+  ======================================================= */
+
+  const handleCustomerChange = (event) => {
     const {
       name,
       value,
     } = event.target;
 
-    setCustomerDetails(
-      (current) => ({
-        ...current,
-        [name]: value,
-      })
-    );
+    setCustomerDetails((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
   };
 
-  // =====================================================
-  // FIND PRODUCT
-  // =====================================================
 
-  const getProduct = (
-    productId
-  ) => {
-    return products.find(
-      (product) =>
-        product.id === productId
-    );
-  };
-
-  // =====================================================
-  // CALCULATE TOTAL
-  // =====================================================
+  /* =======================================================
+     TOTAL
+  ======================================================= */
 
   const getTotal = () => {
-    if (!cart) {
+    if (
+      !cart ||
+      !cart.items
+    ) {
       return 0;
     }
 
     return cart.items.reduce(
-      (total, item) => {
-        return (
-          total +
-          item.price *
-            item.quantity
-        );
-      },
+      (total, item) =>
+        total +
+        Number(item.price || 0) *
+          Number(item.quantity || 0),
       0
     );
   };
 
-  // =====================================================
-  // FORMAT PRICE
-  // =====================================================
 
-  const formatPrice = (
-    price
-  ) => {
-    return new Intl.NumberFormat(
-      "en-IN",
-      {
-        style: "currency",
-        currency: "INR",
-        maximumFractionDigits: 0,
-      }
-    ).format(price);
-  };
-
-  // =====================================================
-  // LOAD RAZORPAY SCRIPT
-  // =====================================================
-
-  const loadRazorpayScript = () => {
-    return new Promise(
-      (resolve) => {
-
-        // Already loaded
-        if (window.Razorpay) {
-          resolve(true);
-          return;
-        }
-
-        const script =
-          document.createElement(
-            "script"
-          );
-
-        script.src =
-          "https://checkout.razorpay.com/v1/checkout.js";
-
-        script.onload = () => {
-          console.log(
-            "Razorpay script loaded."
-          );
-
-          resolve(true);
-        };
-
-        script.onerror = () => {
-          console.error(
-            "Failed to load Razorpay script."
-          );
-
-          resolve(false);
-        };
-
-        document.body.appendChild(
-          script
-        );
-      }
-    );
-  };
-
-  // =====================================================
-  // VERIFY PAYMENT
-  // =====================================================
+  /* =======================================================
+     VERIFY PAYMENT WITH BACKEND
+  ======================================================= */
 
   const verifyPayment = async (
     razorpayResponse,
     paymentData
   ) => {
-
     const token = getToken();
 
     if (!token) {
       throw new Error(
-        "Authentication token not found. Please login again."
+        "Your login session has expired. Please login again."
       );
     }
 
-    // -----------------------------------------------
-    // EXTRACT RAZORPAY RESPONSE
-    // -----------------------------------------------
+    const response = await fetch(
+      `${API_URL}/payments/verify`,
+      {
+        method: "POST",
 
-    const razorpayPaymentId =
-      razorpayResponse?.razorpay_payment_id;
+        headers: {
+          Authorization:
+            `Bearer ${token}`,
 
-    const razorpayOrderId =
-      razorpayResponse?.razorpay_order_id ||
-      paymentData?.razorpay_order_id;
+          "Content-Type":
+            "application/json",
+        },
 
-    const razorpaySignature =
-      razorpayResponse?.razorpay_signature;
+        body: JSON.stringify({
+          razorpay_payment_id:
+            razorpayResponse.razorpay_payment_id,
 
-    console.log(
-      "================================="
+          razorpay_order_id:
+            razorpayResponse.razorpay_order_id ||
+            paymentData.razorpay_order_id,
+
+          razorpay_signature:
+            razorpayResponse.razorpay_signature,
+        }),
+      }
     );
 
-    console.log(
-      "PAYMENT VERIFICATION"
-    );
+    const data = await response.json();
 
     console.log(
-      "Razorpay Payment ID:",
-      razorpayPaymentId
+      "Payment verification response:",
+      data
     );
 
-    console.log(
-      "Razorpay Order ID:",
-      razorpayOrderId
-    );
+    if (response.status === 401) {
+      localStorage.removeItem("token");
+      localStorage.removeItem(
+        "access_token"
+      );
 
-    console.log(
-      "Razorpay Signature:",
-      razorpaySignature
-    );
+      navigate("/login");
 
-    console.log(
-      "================================="
-    );
-
-    // -----------------------------------------------
-    // VALIDATE PAYMENT ID
-    // -----------------------------------------------
-
-    if (!razorpayPaymentId) {
       throw new Error(
-        "Razorpay Payment ID is missing."
+        "Your login session has expired. Please login again."
       );
     }
 
-    // -----------------------------------------------
-    // VALIDATE ORDER ID
-    // -----------------------------------------------
-
-    if (!razorpayOrderId) {
+    if (!response.ok) {
       throw new Error(
-        "Razorpay Order ID is missing."
-      );
-    }
-
-    // -----------------------------------------------
-    // VALIDATE SIGNATURE
-    // -----------------------------------------------
-
-    if (!razorpaySignature) {
-      throw new Error(
-        "Razorpay payment signature is missing."
-      );
-    }
-
-    // -----------------------------------------------
-    // SEND TO BACKEND
-    // -----------------------------------------------
-
-    console.log(
-      "Sending payment verification to backend..."
-    );
-
-    const verifyResponse =
-      await fetch(
-        `${API_URL}/payments/verify`,
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-
-            Authorization:
-              `Bearer ${token}`,
-          },
-
-          body: JSON.stringify({
-            razorpay_payment_id:
-              razorpayPaymentId,
-
-            razorpay_order_id:
-              razorpayOrderId,
-
-            razorpay_signature:
-              razorpaySignature,
-          }),
-        }
-      );
-
-    const verifyData =
-      await verifyResponse.json();
-
-    console.log(
-      "Backend verification response:",
-      verifyData
-    );
-
-    // -----------------------------------------------
-    // BACKEND ERROR
-    // -----------------------------------------------
-
-    if (!verifyResponse.ok) {
-      throw new Error(
-        verifyData.detail ||
+        data?.detail ||
           "Payment verification failed."
       );
     }
 
-    // -----------------------------------------------
-    // SUCCESS
-    // -----------------------------------------------
-
-    return verifyData;
+    return data;
   };
 
-  // =====================================================
-  // OPEN RAZORPAY
-  // =====================================================
+
+  /* =======================================================
+     OPEN RAZORPAY CHECKOUT
+  ======================================================= */
 
   const openRazorpay = (
     paymentData,
     orderData
   ) => {
 
-    // -----------------------------------------------
-    // GET FRONTEND RAZORPAY KEY
-    // -----------------------------------------------
+    /* ---------------------------------------------
+       CHECK FRONTEND RAZORPAY KEY
+    --------------------------------------------- */
 
-    const razorpayKey =
-      import.meta.env
-        .VITE_RAZORPAY_KEY_ID;
-
-    // -----------------------------------------------
-    // CHECK KEY
-    // -----------------------------------------------
-
-    if (!razorpayKey) {
-
-      setError(
-        "Razorpay Key ID is missing. Add VITE_RAZORPAY_KEY_ID to the frontend .env file."
+    if (!RAZORPAY_KEY_ID) {
+      throw new Error(
+        "Razorpay Key ID is missing. Please check frontend/.env"
       );
-
-      return;
     }
 
-    // -----------------------------------------------
-    // CHECK RAZORPAY
-    // -----------------------------------------------
+
+    /* ---------------------------------------------
+       CHECK RAZORPAY SCRIPT
+    --------------------------------------------- */
 
     if (!window.Razorpay) {
-
-      setError(
-        "Razorpay Checkout could not be loaded."
+      throw new Error(
+        "Razorpay Checkout is not loaded."
       );
-
-      return;
     }
 
-    // -----------------------------------------------
-    // CHECK BACKEND PAYMENT DATA
-    // -----------------------------------------------
+
+    /* ---------------------------------------------
+       AMOUNT
+    --------------------------------------------- */
+
+    const razorpayAmount =
+      Number(
+        paymentData.razorpay_amount
+      );
+
 
     if (
-      !paymentData?.razorpay_order_id
+      !razorpayAmount ||
+      razorpayAmount <= 0
     ) {
-      setError(
-        "Razorpay Order ID is missing from backend response."
+      throw new Error(
+        "Invalid Razorpay payment amount."
       );
-
-      return;
     }
 
-    if (
-      !paymentData?.razorpay_amount
-    ) {
-      setError(
-        "Razorpay amount is missing from backend response."
-      );
 
-      return;
-    }
-
-    // =================================================
-    // RAZORPAY OPTIONS
-    // =================================================
+    /* ---------------------------------------------
+       RAZORPAY OPTIONS
+    --------------------------------------------- */
 
     const options = {
+      key: RAZORPAY_KEY_ID,
 
-      // ---------------------------------------------
-      // RAZORPAY TEST KEY
-      // ---------------------------------------------
-
-      key: razorpayKey,
-
-      // ---------------------------------------------
-      // AMOUNT
-      //
-      // Backend sends amount in paise.
-      // Example:
-      // ₹5,000 = 500000 paise
-      // ---------------------------------------------
-
-      amount:
-        paymentData.razorpay_amount,
-
-      // ---------------------------------------------
-      // CURRENCY
-      // ---------------------------------------------
+      amount: razorpayAmount,
 
       currency:
         paymentData.razorpay_currency ||
         "INR",
 
-      // ---------------------------------------------
-      // BUSINESS NAME
-      // ---------------------------------------------
-
-      name: "Zone360",
-
-      // ---------------------------------------------
-      // DESCRIPTION
-      // ---------------------------------------------
+      name:
+        "Zone360",
 
       description:
         `Zone360 Order #${orderData.order_id}`,
 
-      // =================================================
-      // VERY IMPORTANT
-      //
-      // Razorpay expects:
-      //
-      // order_id
-      //
-      // NOT:
-      //
-      // order
-      // =================================================
-
       order_id:
         paymentData.razorpay_order_id,
-
-      // ---------------------------------------------
-      // CUSTOMER INFORMATION
-      // ---------------------------------------------
 
       prefill: {
         name:
@@ -564,48 +402,22 @@ function CheckoutPage() {
           customerDetails.phone,
       },
 
-      // ---------------------------------------------
-      // NOTES
-      // ---------------------------------------------
-
       notes: {
-        customer_name:
-          customerDetails.name,
-
-        address:
-          customerDetails.address,
-
-        city:
-          customerDetails.city,
-
-        state:
-          customerDetails.state,
-
-        pincode:
-          customerDetails.pincode,
-
         zone360_order_id:
-          String(
-            orderData.order_id
-          ),
+          String(orderData.order_id),
       },
-
-      // ---------------------------------------------
-      // THEME
-      // ---------------------------------------------
 
       theme: {
         color: "#1769d1",
       },
 
-      // =================================================
-      // PAYMENT SUCCESS
-      // =================================================
+
+      /* ===========================================
+         PAYMENT SUCCESS
+      =========================================== */
 
       handler:
-        async function (
-          response
-        ) {
+        async (response) => {
 
           try {
 
@@ -618,12 +430,7 @@ function CheckoutPage() {
             );
 
             console.log(
-              "Complete Razorpay response:",
-              response
-            );
-
-            console.log(
-              "Razorpay Payment ID:",
+              "Payment ID:",
               response?.razorpay_payment_id
             );
 
@@ -633,17 +440,20 @@ function CheckoutPage() {
             );
 
             console.log(
-              "Razorpay Signature:",
-              response?.razorpay_signature
+              "Signature received:",
+              Boolean(
+                response?.razorpay_signature
+              )
             );
 
             console.log(
               "================================="
             );
 
-            // -----------------------------------------
-            // VERIFY WITH BACKEND
-            // -----------------------------------------
+
+            /* -------------------------------------
+               VERIFY PAYMENT
+            ------------------------------------- */
 
             const verificationResult =
               await verifyPayment(
@@ -651,70 +461,66 @@ function CheckoutPage() {
                 paymentData
               );
 
+
             console.log(
               "Payment verification successful:",
               verificationResult
             );
 
-            // -----------------------------------------
-            // SUCCESS MESSAGE
-            // -----------------------------------------
+
+            /* -------------------------------------
+               SUCCESS
+            ------------------------------------- */
 
             alert(
               "Payment successful and verified!\n\n" +
-              "Payment ID: " +
-              response.razorpay_payment_id
+                "Payment ID: " +
+                response.razorpay_payment_id
             );
 
-            // -----------------------------------------
-            // GO TO ORDERS
-            // -----------------------------------------
 
-            navigate(
-              "/orders"
-            );
+            navigate("/orders");
 
-          } catch (error) {
+          } catch (verificationError) {
 
             console.error(
-              "PAYMENT VERIFICATION ERROR",
-              error
+              "PAYMENT VERIFICATION ERROR:",
+              verificationError
             );
 
             setError(
-              error.message ||
+              verificationError.message ||
                 "Payment verification failed."
             );
 
             alert(
               "Payment was completed, but verification failed.\n\n" +
-              (
-                error.message ||
-                "Please contact support."
-              )
+                (
+                  verificationError.message ||
+                  "Please contact support."
+                )
             );
           }
         },
 
-      // =================================================
-      // MODAL
-      // =================================================
+
+      /* ===========================================
+         MODAL CLOSED
+      =========================================== */
 
       modal: {
-        ondismiss:
-          function () {
-
-            console.log(
-              "Razorpay checkout closed."
-            );
-
-          },
+        ondismiss: () => {
+          console.log(
+            "Razorpay checkout closed."
+          );
+        },
       },
     };
 
-    // =================================================
-    // DEBUG
-    // =================================================
+
+    /* =============================================
+       DEBUG
+    ============================================= */
 
     console.log(
       "================================="
@@ -726,7 +532,7 @@ function CheckoutPage() {
 
     console.log(
       "Razorpay Key:",
-      razorpayKey
+      RAZORPAY_KEY_ID
     );
 
     console.log(
@@ -745,32 +551,25 @@ function CheckoutPage() {
     );
 
     console.log(
-      "Razorpay Options:",
-      options
-    );
-
-    console.log(
       "================================="
     );
 
-    // =================================================
-    // CREATE RAZORPAY INSTANCE
-    // =================================================
+
+    /* =============================================
+       CREATE RAZORPAY INSTANCE
+    ============================================= */
 
     const razorpay =
-      new window.Razorpay(
-        options
-      );
+      new window.Razorpay(options);
 
-    // =================================================
-    // PAYMENT FAILED
-    // =================================================
+
+    /* =============================================
+       PAYMENT FAILED
+    ============================================= */
 
     razorpay.on(
       "payment.failed",
-      function (
-        response
-      ) {
+      (response) => {
 
         console.error(
           "RAZORPAY PAYMENT FAILED:",
@@ -778,69 +577,75 @@ function CheckoutPage() {
         );
 
         const description =
-          response?.error
-            ?.description ||
+          response?.error?.description ||
           "Payment failed. Please try again.";
 
         const reason =
-          response?.error
-            ?.reason;
+          response?.error?.reason;
 
-        setError(
+        const message =
           reason
             ? `${description} (${reason})`
-            : description
-        );
+            : description;
 
-        alert(
-          reason
-            ? `${description}\n\nReason: ${reason}`
-            : description
-        );
+        setError(message);
+
+        alert(message);
       }
     );
 
-    // =================================================
-    // OPEN PAYMENT WINDOW
-    // =================================================
+
+    /* =============================================
+       OPEN RAZORPAY
+    ============================================= */
 
     razorpay.open();
   };
 
-  // =====================================================
-  // START RAZORPAY PAYMENT
-  // =====================================================
+
+  /* =======================================================
+     START RAZORPAY PAYMENT
+  ======================================================= */
 
   const startRazorpayPayment =
     async () => {
 
       try {
 
-        setPaymentLoading(
-          true
-        );
+        setPaymentLoading(true);
 
         setError("");
 
-        // ---------------------------------------------
-        // TOKEN
-        // ---------------------------------------------
 
-        const token =
-          getToken();
+        /* ---------------------------------------------
+           TOKEN
+        --------------------------------------------- */
+
+        const token = getToken();
 
         if (!token) {
 
-          navigate(
-            "/login"
-          );
+          navigate("/login");
 
           return;
         }
 
-        // ---------------------------------------------
-        // CART CHECK
-        // ---------------------------------------------
+
+        /* ---------------------------------------------
+           RAZORPAY KEY
+        --------------------------------------------- */
+
+        if (!RAZORPAY_KEY_ID) {
+
+          throw new Error(
+            "Razorpay Key ID is missing. Check frontend/.env"
+          );
+        }
+
+
+        /* ---------------------------------------------
+           CART
+        --------------------------------------------- */
 
         if (
           !cart ||
@@ -853,9 +658,10 @@ function CheckoutPage() {
           );
         }
 
-        // ---------------------------------------------
-        // VALIDATE NAME
-        // ---------------------------------------------
+
+        /* ---------------------------------------------
+           CUSTOMER DETAILS
+        --------------------------------------------- */
 
         if (
           !customerDetails.name.trim()
@@ -866,9 +672,6 @@ function CheckoutPage() {
           );
         }
 
-        // ---------------------------------------------
-        // VALIDATE PHONE
-        // ---------------------------------------------
 
         if (
           !customerDetails.phone.trim()
@@ -879,9 +682,6 @@ function CheckoutPage() {
           );
         }
 
-        // ---------------------------------------------
-        // VALIDATE ADDRESS
-        // ---------------------------------------------
 
         if (
           !customerDetails.address.trim()
@@ -892,9 +692,6 @@ function CheckoutPage() {
           );
         }
 
-        // ---------------------------------------------
-        // VALIDATE CITY
-        // ---------------------------------------------
 
         if (
           !customerDetails.city.trim()
@@ -905,9 +702,6 @@ function CheckoutPage() {
           );
         }
 
-        // ---------------------------------------------
-        // VALIDATE STATE
-        // ---------------------------------------------
 
         if (
           !customerDetails.state.trim()
@@ -918,9 +712,6 @@ function CheckoutPage() {
           );
         }
 
-        // ---------------------------------------------
-        // VALIDATE PINCODE
-        // ---------------------------------------------
 
         if (
           !customerDetails.pincode.trim()
@@ -931,9 +722,26 @@ function CheckoutPage() {
           );
         }
 
-        // =================================================
-        // 1. CREATE ZONE360 ORDER
-        // =================================================
+
+        /* ---------------------------------------------
+           PINCODE VALIDATION
+        --------------------------------------------- */
+
+        if (
+          !/^\d{6}$/.test(
+            customerDetails.pincode.trim()
+          )
+        ) {
+
+          throw new Error(
+            "Please enter a valid 6-digit pincode."
+          );
+        }
+
+
+        /* =============================================
+           1. CREATE ZONE360 ORDER
+        ============================================= */
 
         console.log(
           "================================="
@@ -946,6 +754,7 @@ function CheckoutPage() {
         console.log(
           "================================="
         );
+
 
         const orderResponse =
           await fetch(
@@ -963,13 +772,20 @@ function CheckoutPage() {
             }
           );
 
+
         const orderData =
           await orderResponse.json();
+
 
         console.log(
           "Zone360 Order Response:",
           orderData
         );
+
+
+        /* ---------------------------------------------
+           TOKEN EXPIRED
+        --------------------------------------------- */
 
         if (
           orderResponse.status === 401
@@ -983,26 +799,30 @@ function CheckoutPage() {
             "access_token"
           );
 
-          navigate(
-            "/login"
-          );
+          navigate("/login");
 
           return;
         }
+
+
+        /* ---------------------------------------------
+           ORDER ERROR
+        --------------------------------------------- */
 
         if (
           !orderResponse.ok
         ) {
 
           throw new Error(
-            orderData.detail ||
+            orderData?.detail ||
               "Unable to create order."
           );
         }
 
-        // =================================================
-        // 2. CREATE RAZORPAY ORDER
-        // =================================================
+
+        /* =============================================
+           2. CREATE RAZORPAY ORDER
+        ============================================= */
 
         console.log(
           "================================="
@@ -1026,20 +846,23 @@ function CheckoutPage() {
           "================================="
         );
 
+
         const paymentData =
           await createPayment(
             orderData.order_id,
             "razorpay"
           );
 
+
         console.log(
           "Razorpay Payment Response:",
           paymentData
         );
 
-        // ---------------------------------------------
-        // CHECK PAYMENT RESPONSE
-        // ---------------------------------------------
+
+        /* ---------------------------------------------
+           CHECK RAZORPAY ORDER ID
+        --------------------------------------------- */
 
         if (
           !paymentData?.razorpay_order_id
@@ -1050,12 +873,14 @@ function CheckoutPage() {
           );
         }
 
-        // =================================================
-        // 3. LOAD RAZORPAY
-        // =================================================
+
+        /* =============================================
+           3. LOAD RAZORPAY
+        ============================================= */
 
         const razorpayLoaded =
           await loadRazorpayScript();
+
 
         if (
           !razorpayLoaded
@@ -1066,9 +891,10 @@ function CheckoutPage() {
           );
         }
 
-        // =================================================
-        // 4. OPEN RAZORPAY
-        // =================================================
+
+        /* =============================================
+           4. OPEN RAZORPAY
+        ============================================= */
 
         openRazorpay(
           paymentData,
@@ -1094,15 +920,14 @@ function CheckoutPage() {
 
       } finally {
 
-        setPaymentLoading(
-          false
-        );
+        setPaymentLoading(false);
       }
     };
 
-  // =====================================================
-  // LOADING SCREEN
-  // =====================================================
+
+  /* =======================================================
+     LOADING SCREEN
+  ======================================================= */
 
   if (loading) {
 
@@ -1112,6 +937,10 @@ function CheckoutPage() {
         <div className="container">
 
           <div className="page-heading">
+
+            <span>
+              SECURE CHECKOUT
+            </span>
 
             <h1>
               Checkout
@@ -1129,9 +958,10 @@ function CheckoutPage() {
     );
   }
 
-  // =====================================================
-  // MAIN CHECKOUT
-  // =====================================================
+
+  /* =======================================================
+     MAIN CHECKOUT
+  ======================================================= */
 
   return (
 
@@ -1141,9 +971,9 @@ function CheckoutPage() {
 
       <div className="container">
 
-        {/* =================================================
+        {/* ============================================
             PAGE HEADER
-        ================================================= */}
+        ============================================ */}
 
         <div className="page-heading">
 
@@ -1162,65 +992,53 @@ function CheckoutPage() {
 
         </div>
 
-        {/* =================================================
-            ERROR MESSAGE
-        ================================================= */}
+
+        {/* ============================================
+            ERROR
+        ============================================ */}
 
         {error && (
 
           <div
             className="error-message"
             style={{
-              marginBottom:
-                "24px",
-
-              padding:
-                "16px",
-
-              borderRadius:
-                "8px",
-
-              background:
-                "#fee2e2",
-
-              color:
-                "#b91c1c",
+              marginBottom: "24px",
+              padding: "16px",
+              borderRadius: "8px",
+              background: "#fee2e2",
+              color: "#b91c1c",
+              border: "1px solid #fecaca",
             }}
           >
-
             {error}
-
           </div>
 
         )}
 
-        {/* =================================================
+
+        {/* ============================================
             CHECKOUT GRID
-        ================================================= */}
+        ============================================ */}
 
         <div
           className="checkout-grid"
           style={{
-            display:
-              "grid",
-
+            display: "grid",
             gridTemplateColumns:
-              "2fr 1fr",
-
-            gap:
-              "30px",
+              "minmax(0, 2fr) minmax(280px, 1fr)",
+            gap: "30px",
           }}
         >
 
-          {/* =================================================
+          {/* ==========================================
               LEFT SIDE
-          ================================================= */}
+          ========================================== */}
 
           <div>
 
-            {/* =================================================
+            {/* ========================================
                 CUSTOMER DETAILS
-            ================================================= */}
+            ======================================== */}
 
             <div
               className="checkout-card"
@@ -1229,6 +1047,7 @@ function CheckoutPage() {
               <h2>
                 Customer Details
               </h2>
+
 
               {/* NAME */}
 
@@ -1250,9 +1069,11 @@ function CheckoutPage() {
                     handleCustomerChange
                   }
                   placeholder="Full Name"
+                  autoComplete="name"
                 />
 
               </div>
+
 
               {/* PHONE */}
 
@@ -1274,9 +1095,11 @@ function CheckoutPage() {
                     handleCustomerChange
                   }
                   placeholder="Phone Number"
+                  autoComplete="tel"
                 />
 
               </div>
+
 
               {/* ADDRESS */}
 
@@ -1298,9 +1121,11 @@ function CheckoutPage() {
                     handleCustomerChange
                   }
                   placeholder="Address"
+                  autoComplete="street-address"
                 />
 
               </div>
+
 
               {/* CITY */}
 
@@ -1322,9 +1147,11 @@ function CheckoutPage() {
                     handleCustomerChange
                   }
                   placeholder="City"
+                  autoComplete="address-level2"
                 />
 
               </div>
+
 
               {/* STATE */}
 
@@ -1346,9 +1173,11 @@ function CheckoutPage() {
                     handleCustomerChange
                   }
                   placeholder="State"
+                  autoComplete="address-level1"
                 />
 
               </div>
+
 
               {/* PINCODE */}
 
@@ -1370,21 +1199,24 @@ function CheckoutPage() {
                     handleCustomerChange
                   }
                   placeholder="Pincode"
+                  maxLength={6}
+                  inputMode="numeric"
+                  autoComplete="postal-code"
                 />
 
               </div>
 
             </div>
 
-            {/* =================================================
+
+            {/* ========================================
                 PAYMENT
-            ================================================= */}
+            ======================================== */}
 
             <div
               className="checkout-card"
               style={{
-                marginTop:
-                  "24px",
+                marginTop: "24px",
               }}
             >
 
@@ -1392,19 +1224,15 @@ function CheckoutPage() {
                 Payment
               </h2>
 
+
               <div
                 style={{
-                  padding:
-                    "16px",
-
-                  background:
-                    "#f8fafc",
-
-                  borderRadius:
-                    "8px",
-
-                  marginBottom:
-                    "20px",
+                  padding: "16px",
+                  background: "#f8fafc",
+                  borderRadius: "8px",
+                  marginBottom: "20px",
+                  border:
+                    "1px solid #e2e8f0",
                 }}
               >
 
@@ -1415,6 +1243,7 @@ function CheckoutPage() {
                 </strong>
 
               </div>
+
 
               <button
                 type="button"
@@ -1429,8 +1258,7 @@ function CheckoutPage() {
                   cart.items.length === 0
                 }
                 style={{
-                  width:
-                    "100%",
+                  width: "100%",
                 }}
               >
 
@@ -1446,9 +1274,10 @@ function CheckoutPage() {
 
           </div>
 
-          {/* =================================================
-              RIGHT SIDE — ORDER SUMMARY
-          ================================================= */}
+
+          {/* ==========================================
+              RIGHT SIDE
+          ========================================== */}
 
           <div>
 
@@ -1460,31 +1289,28 @@ function CheckoutPage() {
                 Order Summary
               </h2>
 
+
               {cart &&
+                cart.items &&
                 cart.items.map(
                   (item) => {
 
                     const product =
-                      getProduct(
+                      products[
                         item.product_id
-                      );
+                      ];
 
                     return (
 
                       <div
-                        key={
-                          item.id
-                        }
+                        key={item.id}
                         style={{
-                          display:
-                            "flex",
-
+                          display: "flex",
                           justifyContent:
                             "space-between",
-
+                          gap: "20px",
                           padding:
                             "14px 0",
-
                           borderBottom:
                             "1px solid #e5e7eb",
                         }}
@@ -1500,13 +1326,11 @@ function CheckoutPage() {
 
                           </strong>
 
+
                           <div
                             style={{
-                              marginTop:
-                                "4px",
-
-                              color:
-                                "#64748b",
+                              marginTop: "4px",
+                              color: "#64748b",
                             }}
                           >
 
@@ -1522,11 +1346,16 @@ function CheckoutPage() {
 
                         </div>
 
+
                         <strong>
 
                           {formatPrice(
-                            item.price *
-                              item.quantity
+                            Number(
+                              item.price || 0
+                            ) *
+                              Number(
+                                item.quantity || 0
+                              )
                           )}
 
                         </strong>
@@ -1536,46 +1365,39 @@ function CheckoutPage() {
                   }
                 )}
 
-              {/* =================================================
+
+              {/* ======================================
                   TOTAL
-              ================================================= */}
+              ====================================== */}
 
               <div
                 style={{
-                  display:
-                    "flex",
-
+                  display: "flex",
                   justifyContent:
                     "space-between",
-
-                  paddingTop:
-                    "20px",
-
-                  marginTop:
-                    "10px",
+                  alignItems: "center",
+                  paddingTop: "20px",
+                  marginTop: "10px",
                 }}
               >
 
                 <strong
                   style={{
-                    fontSize:
-                      "20px",
+                    fontSize: "20px",
                   }}
                 >
                   Total
                 </strong>
 
+
                 <strong
                   style={{
-                    fontSize:
-                      "22px",
+                    fontSize: "22px",
                   }}
                 >
-
                   {formatPrice(
                     getTotal()
                   )}
-
                 </strong>
 
               </div>
@@ -1590,6 +1412,7 @@ function CheckoutPage() {
 
     </section>
   );
-}
+};
+
 
 export default CheckoutPage;
